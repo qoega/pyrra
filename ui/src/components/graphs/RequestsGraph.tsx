@@ -1,23 +1,23 @@
-import React, {useLayoutEffect, useRef, useState} from 'react'
+import React, {useEffect, useLayoutEffect, useRef, useState} from 'react'
 import {Spinner} from 'react-bootstrap'
 import UplotReact from 'uplot-react'
-import uPlot from 'uplot'
+import uPlot, {AlignedData} from 'uplot'
 import {ObjectiveType} from '../../App'
 import {IconExternal} from '../Icons'
 import {blues, greens, reds, yellows} from './colors'
 import {seriesGaps} from './gaps'
 import {PromiseClient} from '@connectrpc/connect'
-import {usePrometheusQueryRange} from '../../prometheus'
-import {PrometheusService} from '../../proto/prometheus/v1/prometheus_connect'
-import {step} from './step'
-import {convertAlignedData} from './aligneddata'
+import {ObjectiveService} from '../../proto/objectives/v1alpha1/objectives_connect'
+import {Timestamp} from '@bufbuild/protobuf'
+import {Series} from '../../proto/objectives/v1alpha1/objectives_pb'
 import {selectTimeRange} from './selectTimeRange'
-import {Labels, labelValues} from '../../labels'
-import {buildExternalHRef, externalName} from '../../external';
+import {Labels, labelValues, labelsString} from '../../labels'
+import {buildExternalHRef, externalName} from '../../external'
 
 interface RequestsGraphProps {
-  client: PromiseClient<typeof PrometheusService>
-  query: string
+  client: PromiseClient<typeof ObjectiveService>
+  labels: Labels
+  grouping: Labels
   from: number
   to: number
   uPlotCursor: uPlot.Cursor
@@ -28,7 +28,8 @@ interface RequestsGraphProps {
 
 const RequestsGraph = ({
   client,
-  query,
+  labels: objectiveLabels,
+  grouping,
   from,
   to,
   uPlotCursor,
@@ -39,6 +40,11 @@ const RequestsGraph = ({
   const targetRef = useRef() as React.MutableRefObject<HTMLDivElement>
 
   const [width, setWidth] = useState<number>(500)
+  const [data, setData] = useState<AlignedData>([])
+  const [seriesLabels, setSeriesLabels] = useState<Labels[]>([])
+  const [loading, setLoading] = useState<boolean>(true)
+  const [error, setError] = useState<boolean>(false)
+  const [queryStr, setQueryStr] = useState<string>('')
 
   const setWidthFromContainer = () => {
     if (targetRef?.current !== undefined && targetRef?.current !== null) {
@@ -51,15 +57,60 @@ const RequestsGraph = ({
   // Set width on every window resize
   window.addEventListener('resize', setWidthFromContainer)
 
-  const {response, status} = usePrometheusQueryRange(
-    client,
-    query,
-    from / 1000,
-    to / 1000,
-    step(from, to),
-  )
+  useEffect(() => {
+    setLoading(true)
+    setError(false)
+    client
+      .graphRate({
+        expr: labelsString(objectiveLabels),
+        grouping: labelsString(grouping),
+        start: Timestamp.fromDate(new Date(from)),
+        end: Timestamp.fromDate(new Date(to)),
+      })
+      .then((resp) => {
+        const timeseries = resp.timeseries
+        if (timeseries !== undefined && timeseries.series.length >= 2) {
+          const [x, ...series] = timeseries.series
+          const timestamps = x.values
+          const values = series.map((s: Series) => s.values)
+          setData([timestamps, ...values])
 
-  if (status === 'loading' || status === 'idle') {
+          // Parse label strings into Labels objects
+          const lbls: Labels[] = timeseries.labels.map((l: string) => {
+            // Label strings are like {key="value",...} - parse them
+            const parsed: Labels = {}
+            const stripped = l.replace(/^\{|}$/g, '')
+            if (stripped !== '') {
+              stripped.split(',').forEach((pair) => {
+                const eqIdx = pair.indexOf('=')
+                if (eqIdx > 0) {
+                  const key = pair.substring(0, eqIdx).trim()
+                  let value = pair.substring(eqIdx + 1).trim()
+                  value = value.replace(/^"|"$/g, '')
+                  parsed[key] = value
+                }
+              })
+            }
+            return parsed
+          })
+          setSeriesLabels(lbls)
+          setQueryStr(timeseries.query)
+        } else {
+          setData([])
+          setSeriesLabels([])
+        }
+      })
+      .catch(() => {
+        setData([])
+        setSeriesLabels([])
+        setError(true)
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }, [client, objectiveLabels, grouping, from, to])
+
+  if (loading) {
     return (
       <div style={{display: 'flex', alignItems: 'baseline', justifyContent: 'space-between'}}>
         <h4 className="graphs-headline">
@@ -79,16 +130,13 @@ const RequestsGraph = ({
     )
   }
 
-  if (status === 'error') {
-    // TODO
+  if (error) {
     return (
       <div style={{display: 'flex', alignItems: 'baseline', justifyContent: 'space-between'}}>
         error
       </div>
     )
   }
-
-  const {labels, data} = convertAlignedData(response)
 
   // small state used while picking colors to reuse as little as possible
   const pickedColors = {
@@ -109,14 +157,18 @@ const RequestsGraph = ({
     <div>
       <div style={{display: 'flex', alignItems: 'baseline', justifyContent: 'space-between'}}>
         <h4 className="graphs-headline">{headline}</h4>
-        <a
-          className="external-prometheus"
-          target="_blank"
-          rel="noreferrer"
-          href={buildExternalHRef([query], from, to)}>
-          <IconExternal height={20} width={20} />
-          {externalName()}
-        </a>
+        {queryStr !== '' ? (
+          <a
+            className="external-prometheus"
+            target="_blank"
+            rel="noreferrer"
+            href={buildExternalHRef([queryStr], from, to)}>
+            <IconExternal height={20} width={20} />
+            {externalName()}
+          </a>
+        ) : (
+          <></>
+        )}
       </div>
       <div>
         <p>{description}</p>
@@ -132,7 +184,7 @@ const RequestsGraph = ({
               cursor: uPlotCursor,
               series: [
                 {},
-                ...labels.map((label: Labels): uPlot.Series => {
+                ...seriesLabels.map((label: Labels): uPlot.Series => {
                   const value = labelValues(label)[0]
                   return {
                     label: value,

@@ -24,9 +24,7 @@ import AlertsTable from '../components/AlertsTable'
 import Toggle from '../components/Toggle'
 import DurationGraph from '../components/graphs/DurationGraph'
 import uPlot from 'uplot'
-import {PrometheusService} from '../proto/prometheus/v1/prometheus_connect'
-import {replaceInterval, usePrometheusQuery} from '../prometheus'
-import {useObjectivesList} from '../objectives'
+import {useObjectivesList, useObjectivesStatus} from '../objectives'
 import {Objective} from '../proto/objectives/v1alpha1/objectives_pb'
 import {formatDuration, parseDuration} from '../duration'
 import ObjectiveTile from '../components/tiles/ObjectiveTile'
@@ -40,10 +38,6 @@ const Detail = () => {
 
   const client = useMemo(() => {
     return createPromiseClient(ObjectiveService, createConnectTransport({baseUrl}))
-  }, [baseUrl])
-
-  const promClient = useMemo(() => {
-    return createPromiseClient(PrometheusService, createConnectTransport({baseUrl}))
   }, [baseUrl])
 
   const navigate = useNavigate()
@@ -99,18 +93,13 @@ const Detail = () => {
 
   const objective: Objective | null = objectiveResponse?.objectives[0] ?? null
 
-  const {response: totalResponse, status: totalStatus} = usePrometheusQuery(
-    promClient,
-    objective?.queries?.countTotal ?? '',
-    to / 1000,
-    {enabled: objectiveStatus === 'success' && objective?.queries?.countTotal !== undefined},
-  )
-
-  const {response: errorResponse, status: errorStatus} = usePrometheusQuery(
-    promClient,
-    objective?.queries?.countErrors ?? '',
-    to / 1000,
-    {enabled: objectiveStatus === 'success' && objective?.queries?.countTotal !== undefined},
+  // Use ObjectiveService.GetStatus instead of two separate Prometheus queries
+  const {response: statusResponse, status: statusQueryStatus} = useObjectivesStatus(
+    client,
+    expr,
+    grouping,
+    to,
+    {enabled: objectiveStatus === 'success' && objective !== null},
   )
 
   const updateTimeRange = useCallback(
@@ -200,23 +189,17 @@ const Detail = () => {
   const objectiveTypeLatency =
     objectiveType === ObjectiveType.Latency || objectiveType === ObjectiveType.LatencyNative
 
-  const loading: boolean =
-    totalStatus === 'loading' ||
-    totalStatus === 'idle' ||
-    errorStatus === 'loading' ||
-    errorStatus === 'idle'
+  const loading: boolean = statusQueryStatus === 'loading' || statusQueryStatus === 'idle'
+  const success: boolean = statusQueryStatus === 'success'
 
-  const success: boolean = totalStatus === 'success' && errorStatus === 'success'
-
+  // Extract errors and total from GetStatus response
   let errors: number = 0
   let total: number = 1
-  if (totalResponse?.options.case === 'vector' && errorResponse?.options.case === 'vector') {
-    if (errorResponse.options.value.samples.length > 0) {
-      errors = errorResponse.options.value.samples[0].value
-    }
-
-    if (totalResponse.options.value.samples.length > 0) {
-      total = totalResponse.options.value.samples[0].value
+  if (statusResponse !== null && statusResponse.status.length > 0) {
+    const st = statusResponse.status[0]
+    if (st.availability !== undefined) {
+      errors = st.availability.errors
+      total = st.availability.total
     }
   }
 
@@ -356,19 +339,16 @@ const Detail = () => {
           </Row>
           <Row>
             <Col>
-              {objective.queries?.graphErrorBudget !== undefined ? (
-                <ErrorBudgetGraph
-                  client={promClient}
-                  query={objective.queries.graphErrorBudget}
-                  from={from}
-                  to={to}
-                  uPlotCursor={uPlotCursor}
-                  updateTimeRange={updateTimeRangeSelect}
-                  absolute={absolute}
-                />
-              ) : (
-                <></>
-              )}
+              <ErrorBudgetGraph
+                client={client}
+                labels={labels}
+                grouping={groupingLabels}
+                from={from}
+                to={to}
+                uPlotCursor={uPlotCursor}
+                updateTimeRange={updateTimeRangeSelect}
+                absolute={absolute}
+              />
             </Col>
           </Row>
           <Row>
@@ -376,39 +356,33 @@ const Detail = () => {
               xs={12}
               md={objectiveTypeLatency ? 12 : 6}
               className={objectiveTypeLatency ? 'col-xxxl-4' : ''}>
-              {objective.queries?.graphRequests !== undefined ? (
-                <RequestsGraph
-                  client={promClient}
-                  query={replaceInterval(objective.queries.graphRequests, from, to)}
-                  from={from}
-                  to={to}
-                  uPlotCursor={uPlotCursor}
-                  type={objectiveType}
-                  updateTimeRange={updateTimeRangeSelect}
-                  absolute={absolute}
-                />
-              ) : (
-                <></>
-              )}
+              <RequestsGraph
+                client={client}
+                labels={labels}
+                grouping={groupingLabels}
+                from={from}
+                to={to}
+                uPlotCursor={uPlotCursor}
+                type={objectiveType}
+                updateTimeRange={updateTimeRangeSelect}
+                absolute={absolute}
+              />
             </Col>
             <Col
               xs={12}
               md={objectiveTypeLatency ? 12 : 6}
               className={objectiveTypeLatency ? 'col-xxxl-4' : ''}>
-              {objective.queries?.graphErrors !== undefined ? (
-                <ErrorsGraph
-                  client={promClient}
-                  type={objectiveType}
-                  query={replaceInterval(objective.queries.graphErrors, from, to)}
-                  from={from}
-                  to={to}
-                  uPlotCursor={uPlotCursor}
-                  updateTimeRange={updateTimeRangeSelect}
-                  absolute={absolute}
-                />
-              ) : (
-                <></>
-              )}
+              <ErrorsGraph
+                client={client}
+                type={objectiveType}
+                labels={labels}
+                grouping={groupingLabels}
+                from={from}
+                to={to}
+                uPlotCursor={uPlotCursor}
+                updateTimeRange={updateTimeRangeSelect}
+                absolute={absolute}
+              />
             </Col>
             {objectiveTypeLatency && (
               <Col xs={12} className="col-xxxl-4">
@@ -431,8 +405,8 @@ const Detail = () => {
               <h4>Multi Burn Rate Alerts</h4>
               <AlertsTable
                 client={client}
-                promClient={promClient}
                 objective={objective}
+                labels={labels}
                 grouping={groupingLabels}
                 from={from}
                 to={to}

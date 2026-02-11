@@ -1,0 +1,25 @@
+version: '3.8'
+
+# Minimal docker-compose for end-to-end testing of the ClickHouse backend.
+# Usage:
+#   docker-compose -f e2e/docker-compose.test.yaml up -d
+#   go test -v -count=1 -timeout 5m ./e2e/...
+#   docker-compose -f e2e/docker-compose.test.yaml down -v
+
+services:
+  clickhouse:
+    image: clickhouse:26.1
+    ports:
+      - "18123:8123"  # HTTP
+      - "19000:9000"  # Native
+    environment:
+      - CLICKHOUSE_DB=pyrra_e2e
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes: {}

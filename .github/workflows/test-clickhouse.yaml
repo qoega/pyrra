@@ -1,0 +1,90 @@
+name: ClickHouse Tests
+
+on:
+  pull_request:
+    paths:
+      - 'clickhouse/**'
+      - 'clickhouse_cmd.go'
+      - 'clickhouse_cmd_test.go'
+      - 'slo/**'
+      - 'e2e/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/test-clickhouse.yaml'
+  push:
+    branches:
+      - 'main'
+    paths:
+      - 'clickhouse/**'
+      - 'clickhouse_cmd.go'
+      - 'clickhouse_cmd_test.go'
+      - 'slo/**'
+      - 'e2e/**'
+      - 'go.mod'
+      - 'go.sum'
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+      - name: Create UI build directory
+        run: mkdir -p ui/build && touch ui/build/empty
+      - name: Run ClickHouse unit tests
+        run: go test -short -race -count=1 -coverprofile=coverage-unit.out ./clickhouse/...
+      - name: Run SLO unit tests
+        run: go test -short -race -count=1 ./slo/...
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-unit
+          path: coverage-unit.out
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+      - name: Create UI build directory
+        run: mkdir -p ui/build && touch ui/build/empty
+      - name: Run ClickHouse integration tests
+        run: go test -count=1 -timeout 10m -coverprofile=coverage-integration.out ./clickhouse/...
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-integration
+          path: coverage-integration.out
+
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+      - name: Create UI build directory
+        run: mkdir -p ui/build && touch ui/build/empty
+      - name: Run e2e tests
+        run: E2E=1 go test -v -count=1 -timeout 5m ./e2e/...
+
+  golden-files:
+    name: Golden File Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+      - name: Create UI build directory
+        run: mkdir -p ui/build && touch ui/build/empty
+      - name: Verify golden files are up to date
+        run: |
+          go test -short -count=1 -run "TestGolden" ./clickhouse/...

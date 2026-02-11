@@ -1,0 +1,24 @@
+apiVersion: pyrra.dev/v1alpha1
+kind: ServiceLevelObjective
+metadata:
+  name: http-latency
+  namespace: monitoring
+  labels:
+    prometheus: k8s
+    role: alert-rules
+    pyrra.dev/team: platform
+spec:
+  description: HTTP request latency (P90 < 100ms)
+  target: "95"
+  window: 4w
+  indicator:
+    latency:
+      success:
+        metric: http_request_duration_seconds_bucket{job="api-server",le="0.1"}
+      total:
+        metric: http_request_duration_seconds_count{job="api-server"}
+      grouping:
+        - handler
+
+
+

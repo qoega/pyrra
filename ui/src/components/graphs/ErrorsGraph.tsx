@@ -1,24 +1,24 @@
-import React, {useLayoutEffect, useRef, useState} from 'react'
+import React, {useEffect, useLayoutEffect, useRef, useState} from 'react'
 import {Spinner} from 'react-bootstrap'
 import UplotReact from 'uplot-react'
-import uPlot from 'uplot'
+import uPlot, {AlignedData} from 'uplot'
 import {ObjectiveType} from '../../App'
 import {IconExternal} from '../Icons'
 import {reds} from './colors'
 import {seriesGaps} from './gaps'
 import {PromiseClient} from '@connectrpc/connect'
-import {usePrometheusQueryRange} from '../../prometheus'
-import {PrometheusService} from '../../proto/prometheus/v1/prometheus_connect'
-import {step} from './step'
-import {convertAlignedData} from './aligneddata'
+import {ObjectiveService} from '../../proto/objectives/v1alpha1/objectives_connect'
+import {Timestamp} from '@bufbuild/protobuf'
+import {Series} from '../../proto/objectives/v1alpha1/objectives_pb'
 import {selectTimeRange} from './selectTimeRange'
-import {Labels, labelValues} from '../../labels'
-import {buildExternalHRef, externalName} from '../../external';
+import {Labels, labelValues, labelsString} from '../../labels'
+import {buildExternalHRef, externalName} from '../../external'
 
 interface ErrorsGraphProps {
-  client: PromiseClient<typeof PrometheusService>
+  client: PromiseClient<typeof ObjectiveService>
   type: ObjectiveType
-  query: string
+  labels: Labels
+  grouping: Labels
   from: number
   to: number
   uPlotCursor: uPlot.Cursor
@@ -29,7 +29,8 @@ interface ErrorsGraphProps {
 const ErrorsGraph = ({
   client,
   type,
-  query,
+  labels: objectiveLabels,
+  grouping,
   from,
   to,
   uPlotCursor,
@@ -39,6 +40,11 @@ const ErrorsGraph = ({
   const targetRef = useRef() as React.MutableRefObject<HTMLDivElement>
 
   const [width, setWidth] = useState<number>(500)
+  const [data, setData] = useState<AlignedData>([])
+  const [seriesLabels, setSeriesLabels] = useState<Labels[]>([])
+  const [loading, setLoading] = useState<boolean>(true)
+  const [error, setError] = useState<boolean>(false)
+  const [queryStr, setQueryStr] = useState<string>('')
 
   const setWidthFromContainer = () => {
     if (targetRef?.current !== undefined && targetRef?.current !== null) {
@@ -51,15 +57,59 @@ const ErrorsGraph = ({
   // Set width on every window resize
   window.addEventListener('resize', setWidthFromContainer)
 
-  const {response, status} = usePrometheusQueryRange(
-    client,
-    query,
-    from / 1000,
-    to / 1000,
-    step(from, to),
-  )
+  useEffect(() => {
+    setLoading(true)
+    setError(false)
+    client
+      .graphErrors({
+        expr: labelsString(objectiveLabels),
+        grouping: labelsString(grouping),
+        start: Timestamp.fromDate(new Date(from)),
+        end: Timestamp.fromDate(new Date(to)),
+      })
+      .then((resp) => {
+        const timeseries = resp.timeseries
+        if (timeseries !== undefined && timeseries.series.length >= 2) {
+          const [x, ...series] = timeseries.series
+          const timestamps = x.values
+          const values = series.map((s: Series) => s.values)
+          setData([timestamps, ...values])
 
-  if (status === 'loading' || status === 'idle') {
+          // Parse label strings into Labels objects
+          const lbls: Labels[] = timeseries.labels.map((l: string) => {
+            const parsed: Labels = {}
+            const stripped = l.replace(/^\{|}$/g, '')
+            if (stripped !== '') {
+              stripped.split(',').forEach((pair) => {
+                const eqIdx = pair.indexOf('=')
+                if (eqIdx > 0) {
+                  const key = pair.substring(0, eqIdx).trim()
+                  let value = pair.substring(eqIdx + 1).trim()
+                  value = value.replace(/^"|"$/g, '')
+                  parsed[key] = value
+                }
+              })
+            }
+            return parsed
+          })
+          setSeriesLabels(lbls)
+          setQueryStr(timeseries.query)
+        } else {
+          setData([])
+          setSeriesLabels([])
+        }
+      })
+      .catch(() => {
+        setData([])
+        setSeriesLabels([])
+        setError(true)
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }, [client, objectiveLabels, grouping, from, to])
+
+  if (loading) {
     return (
       <div style={{display: 'flex', alignItems: 'baseline', justifyContent: 'space-between'}}>
         <h4 className="graphs-headline">
@@ -79,7 +129,7 @@ const ErrorsGraph = ({
     )
   }
 
-  if (status === 'error') {
+  if (error) {
     return (
       <UplotReact
         options={{
@@ -96,8 +146,6 @@ const ErrorsGraph = ({
       />
     )
   }
-
-  const {labels, data} = convertAlignedData(response)
 
   let headline = 'Errors'
   let description: string
@@ -119,60 +167,80 @@ const ErrorsGraph = ({
     <>
       <div style={{display: 'flex', alignItems: 'baseline', justifyContent: 'space-between'}}>
         <h4 className="graphs-headline">{headline}</h4>
-        <a
-          className="external-prometheus"
-          target="_blank"
-          rel="noreferrer"
-          href={buildExternalHRef([query], from, to)}>
-          <IconExternal height={20} width={20} />
-          {externalName()}
-        </a>
+        {queryStr !== '' ? (
+          <a
+            className="external-prometheus"
+            target="_blank"
+            rel="noreferrer"
+            href={buildExternalHRef([queryStr], from, to)}>
+            <IconExternal height={20} width={20} />
+            {externalName()}
+          </a>
+        ) : (
+          <></>
+        )}
       </div>
       <div>
         <p>{description}</p>
       </div>
 
       <div ref={targetRef}>
-        <UplotReact
-          options={{
-            width: width,
-            height: 150,
-            padding: [15, 0, 0, 0],
-            cursor: uPlotCursor,
-            series: [
-              {},
-              ...labels.map((label: Labels, i: number): uPlot.Series => {
-                return {
-                  min: 0,
-                  stroke: `#${reds[i]}`,
-                  label: labelValues(label)[0],
-                  gaps: seriesGaps(from / 1000, to / 1000),
-                  value: (u, v) => (v == null ? '-' : (100 * v).toFixed(2) + '%'),
-                }
-              }),
-            ],
-            scales: {
-              x: {min: from / 1000, max: to / 1000},
-              y: {
-                range: {
-                  min: absolute ? {hard: 0, mode: 1, soft: 0} : {hard: 0},
-                  max: absolute ? {hard: 1, mode: 1, soft: 1} : {hard: 1},
+        {data.length > 0 ? (
+          <UplotReact
+            options={{
+              width: width,
+              height: 150,
+              padding: [15, 0, 0, 0],
+              cursor: uPlotCursor,
+              series: [
+                {},
+                ...seriesLabels.map((label: Labels, i: number): uPlot.Series => {
+                  return {
+                    min: 0,
+                    stroke: `#${reds[i]}`,
+                    label: labelValues(label)[0],
+                    gaps: seriesGaps(from / 1000, to / 1000),
+                    value: (u, v) => (v == null ? '-' : (100 * v).toFixed(2) + '%'),
+                  }
+                }),
+              ],
+              scales: {
+                x: {min: from / 1000, max: to / 1000},
+                y: {
+                  range: {
+                    min: absolute ? {hard: 0, mode: 1, soft: 0} : {hard: 0},
+                    max: absolute ? {hard: 1, mode: 1, soft: 1} : {hard: 1},
+                  },
                 },
               },
-            },
-            axes: [
-              {},
-              {
-                values: (uplot: uPlot, v: number[]) =>
-                  v.map((v: number) => `${(100 * v).toFixed(0)}%`),
+              axes: [
+                {},
+                {
+                  values: (uplot: uPlot, v: number[]) =>
+                    v.map((v: number) => `${(100 * v).toFixed(0)}%`),
+                },
+              ],
+              hooks: {
+                setSelect: [selectTimeRange(updateTimeRange)],
               },
-            ],
-            hooks: {
-              setSelect: [selectTimeRange(updateTimeRange)],
-            },
-          }}
-          data={data}
-        />
+            }}
+            data={data}
+          />
+        ) : (
+          <UplotReact
+            options={{
+              width: width,
+              height: 150,
+              padding: [15, 0, 0, 0],
+              series: [{}, {}],
+              scales: {
+                x: {min: from / 1000, max: to / 1000},
+                y: {min: 0, max: 1},
+              },
+            }}
+            data={[[], []]}
+          />
+        )}
       </div>
     </>
   )

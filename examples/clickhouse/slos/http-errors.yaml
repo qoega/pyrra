@@ -1,0 +1,24 @@
+apiVersion: pyrra.dev/v1alpha1
+kind: ServiceLevelObjective
+metadata:
+  name: http-errors
+  namespace: monitoring
+  labels:
+    prometheus: k8s
+    role: alert-rules
+    pyrra.dev/team: platform
+spec:
+  description: HTTP request errors for the API server
+  target: "99"
+  window: 4w
+  indicator:
+    ratio:
+      errors:
+        metric: http_requests_total{job="api-server",code=~"5.."}
+      total:
+        metric: http_requests_total{job="api-server"}
+      grouping:
+        - handler
+
+
+

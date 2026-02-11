@@ -1073,3 +1073,76 @@ export declare class GraphDurationResponse extends Message<GraphDurationResponse
   static equals(a: GraphDurationResponse | PlainMessage<GraphDurationResponse> | undefined, b: GraphDurationResponse | PlainMessage<GraphDurationResponse> | undefined): boolean;
 }
 
+/**
+ * @generated from message objectives.v1alpha1.GraphBurnrateRequest
+ */
+export declare class GraphBurnrateRequest extends Message<GraphBurnrateRequest> {
+  /**
+   * @generated from field: string expr = 1;
+   */
+  expr: string;
+
+  /**
+   * @generated from field: string grouping = 2;
+   */
+  grouping: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp start = 3;
+   */
+  start?: Timestamp;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp end = 4;
+   */
+  end?: Timestamp;
+
+  /**
+   * @generated from field: int32 alert_index = 5;
+   */
+  alertIndex: number;
+
+  constructor(data?: PartialMessage<GraphBurnrateRequest>);
+
+  static readonly runtime: typeof proto3;
+  static readonly typeName = "objectives.v1alpha1.GraphBurnrateRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GraphBurnrateRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GraphBurnrateRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GraphBurnrateRequest;
+
+  static equals(a: GraphBurnrateRequest | PlainMessage<GraphBurnrateRequest> | undefined, b: GraphBurnrateRequest | PlainMessage<GraphBurnrateRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message objectives.v1alpha1.GraphBurnrateResponse
+ */
+export declare class GraphBurnrateResponse extends Message<GraphBurnrateResponse> {
+  /**
+   * @generated from field: objectives.v1alpha1.Timeseries short = 1;
+   */
+  short?: Timeseries;
+
+  /**
+   * @generated from field: objectives.v1alpha1.Timeseries long = 2;
+   */
+  long?: Timeseries;
+
+  constructor(data?: PartialMessage<GraphBurnrateResponse>);
+
+  static readonly runtime: typeof proto3;
+  static readonly typeName = "objectives.v1alpha1.GraphBurnrateResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GraphBurnrateResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GraphBurnrateResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GraphBurnrateResponse;
+
+  static equals(a: GraphBurnrateResponse | PlainMessage<GraphBurnrateResponse> | undefined, b: GraphBurnrateResponse | PlainMessage<GraphBurnrateResponse> | undefined): boolean;
+}
+

@@ -7,15 +7,16 @@ import {IconExternal} from '../Icons'
 import {greens, reds} from './colors'
 import {seriesGaps} from './gaps'
 import {PromiseClient} from '@connectrpc/connect'
-import {PrometheusService} from '../../proto/prometheus/v1/prometheus_connect'
-import {usePrometheusQueryRange} from '../../prometheus'
-import {SamplePair, SampleStream} from '../../proto/prometheus/v1/prometheus_pb'
+import {ObjectiveService} from '../../proto/objectives/v1alpha1/objectives_connect'
+import {Timestamp} from '@bufbuild/protobuf'
+import {Labels, labelsString} from '../../labels'
 import {selectTimeRange} from './selectTimeRange'
 import {buildExternalHRef, externalName} from '../../external'
 
 interface ErrorBudgetGraphProps {
-  client: PromiseClient<typeof PrometheusService>
-  query: string
+  client: PromiseClient<typeof ObjectiveService>
+  labels: Labels
+  grouping: Labels
   from: number
   to: number
   uPlotCursor: uPlot.Cursor
@@ -25,7 +26,8 @@ interface ErrorBudgetGraphProps {
 
 const ErrorBudgetGraph = ({
   client,
-  query,
+  labels,
+  grouping,
   from,
   to,
   uPlotCursor,
@@ -35,6 +37,9 @@ const ErrorBudgetGraph = ({
   const targetRef = useRef() as React.MutableRefObject<HTMLDivElement>
 
   const [width, setWidth] = useState<number>(1000)
+  const [samples, setSamples] = useState<AlignedData>([])
+  const [loading, setLoading] = useState<boolean>(true)
+  const [queryStr, setQueryStr] = useState<string>('')
 
   const setWidthFromContainer = () => {
     if (targetRef !== undefined) {
@@ -53,31 +58,35 @@ const ErrorBudgetGraph = ({
     }
   }, [])
 
-  const {response, status} = usePrometheusQueryRange(
-    client,
-    query,
-    from / 1000,
-    to / 1000,
-    // convert to seconds and then we want 1000 samples
-    (to - from) / 1000 / 1000,
-  )
-
-  let samples: AlignedData = []
-  if (status === 'success') {
-    if (response?.options.case === 'matrix') {
-      const times: number[] = []
-      const values: number[] = []
-      response.options.value.samples.forEach((s: SampleStream) => {
-        s.values.forEach((sp: SamplePair) => {
-          times.push(Number(sp.time))
-          values.push(sp.value * 100)
-        })
+  useEffect(() => {
+    setLoading(true)
+    client
+      .graphErrorBudget({
+        expr: labelsString(labels),
+        grouping: labelsString(grouping),
+        start: Timestamp.fromDate(new Date(from)),
+        end: Timestamp.fromDate(new Date(to)),
       })
-      samples = [times, values]
-    }
-  }
+      .then((resp) => {
+        const timeseries = resp.timeseries
+        if (timeseries !== undefined && timeseries.series.length >= 2) {
+          const timestamps = timeseries.series[0].values
+          const values = timeseries.series[1].values.map((v: number) => v * 100)
+          setSamples([timestamps, values])
+          setQueryStr(timeseries.query)
+        } else {
+          setSamples([])
+        }
+      })
+      .catch(() => {
+        setSamples([])
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }, [client, labels, grouping, from, to])
 
-  if (status !== 'loading' && samples.length === 0) {
+  if (!loading && samples.length === 0) {
     return (
       <>
         <h4 className="graphs-headline">Error Budget</h4>
@@ -95,7 +104,7 @@ const ErrorBudgetGraph = ({
     const max = u.scales.y.max
 
     if (min == null || max == null) {
-      return '#fff'
+      return `#${greens[0]}`
     }
 
     if (min > 0) {
@@ -125,7 +134,7 @@ const ErrorBudgetGraph = ({
       <div style={{display: 'flex', alignItems: 'baseline', justifyContent: 'space-between'}}>
         <h4 className="graphs-headline">
           Error Budget
-          {status === 'loading' || status === 'idle' ? (
+          {loading ? (
             <Spinner
               animation="border"
               style={{
@@ -140,12 +149,12 @@ const ErrorBudgetGraph = ({
             <></>
           )}
         </h4>
-        {query !== '' ? (
+        {queryStr !== '' ? (
           <a
             className="external-prometheus"
             target="_blank"
             rel="noreferrer"
-            href={buildExternalHRef([query], from, to)}>
+            href={buildExternalHRef([queryStr], from, to)}>
             <IconExternal height={20} width={20} />
             {externalName()}
           </a>
@@ -168,6 +177,7 @@ const ErrorBudgetGraph = ({
               series: [
                 {},
                 {
+                  stroke: `#${greens[0]}`,
                   fill: budgetGradient,
                   gaps: seriesGaps(from / 1000, to / 1000),
                   value: (u: uPlot, v: number) => (v == null ? '-' : v.toFixed(2) + '%'),

@@ -19,7 +19,7 @@
 
 ## Features
 
-- Support for Kubernetes, Docker, and reading from the filesystem
+- Support for Kubernetes, Docker, filesystem, and ClickHouse backends
 - Alerting: Generates 4 Multi Burn Rate Alerts with different severity
 - Page listing all Service Level Objectives
   - Search through names and labels
@@ -186,6 +186,62 @@ Here, Pyrra will save the generated recording rules to disk where they can be
 picked up by a Prometheus instance. While running Pyrra on its own works, there
 won't be any SLO configured, nor will there be any data from a Prometheus to
 work with. It's designed to work alongside a Prometheus.
+
+### Running with ClickHouse Backend (Experimental)
+
+> An example for this mode of operation can be found in [examples/clickhouse](examples/clickhouse).
+
+Pyrra can also use ClickHouse as a metrics backend instead of Prometheus. This is useful for:
+
+- **Large-scale deployments** where Prometheus storage becomes a bottleneck
+- **Long retention periods** with efficient columnar storage
+- **SQL-based analysis** of SLO metrics
+
+With the ClickHouse backend, Pyrra creates Refreshable Materialized Views (RMVs) instead of Prometheus recording rules:
+
+```bash
+# Start the ClickHouse backend
+pyrra clickhouse \
+  --addresses=localhost:9000 \
+  --database=pyrra \
+  --config-files=/etc/pyrra/*.yaml
+```
+
+The ClickHouse backend:
+1. **Reads SLO definitions** from YAML files (same format as filesystem mode)
+2. **Runs schema migrations** to create required tables
+3. **Provisions Materialized Views** that compute burn rates and aggregations
+4. **Serves the Backend API** on port 9444 (same as filesystem mode)
+
+You can then run the API/UI pointing to this backend:
+
+```bash
+pyrra api \
+  --api-url=http://localhost:9444
+```
+
+#### Metrics Ingestion
+
+ClickHouse needs to receive metrics in a compatible format. See [examples/clickhouse/README.md](examples/clickhouse/README.md) for ingestion options including:
+
+- Prometheus remote write via Vector
+- Direct scraping adapters
+
+#### ClickHouse CLI Options
+
+```
+Flags:
+      --addresses strings          ClickHouse server addresses (default [localhost:9000])
+      --config-files string        Config files glob pattern (default "/etc/pyrra/*.yaml")
+      --database string            ClickHouse database name (default "pyrra")
+      --username string            ClickHouse username (default "default")
+      --password string            ClickHouse password
+      --tls-enabled                Enable TLS connection
+      --tls-ca-file string         CA certificate file
+      --tls-cert-file string       Client certificate file
+      --tls-key-file string        Client key file
+      --mv-refresh-interval        MV refresh interval (default 30s)
+```
 
 ## Configuration Options
 

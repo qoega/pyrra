@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <!-- Listen on all interfaces -->
+    <listen_host>0.0.0.0</listen_host>
+    
+    <!-- Default database for Pyrra -->
+    <default_database>pyrra</default_database>
+    
+    <!-- Query settings -->
+    <max_execution_time>60</max_execution_time>
+    <max_memory_usage>10000000000</max_memory_usage>
+    
+    <!-- Logging -->
+    <logger>
+        <level>information</level>
+        <console>1</console>
+    </logger>
+    
+    <!-- Materialized view refresh settings -->
+    <background_schedule_pool_size>16</background_schedule_pool_size>
+</clickhouse>
+
+
+

@@ -1,0 +1,58 @@
+# Vector configuration for Pyrra ClickHouse backend
+# Receives Prometheus remote_write and writes to ClickHouse
+
+[api]
+enabled = true
+address = "0.0.0.0:8686"
+
+# Source: Prometheus remote write
+[sources.prometheus_remote_write]
+type = "prometheus_remote_write"
+address = "0.0.0.0:9201"
+
+# Transform: Convert Prometheus metrics to ClickHouse format
+[transforms.to_clickhouse]
+type = "remap"
+inputs = ["prometheus_remote_write"]
+source = '''
+# Extract metric name from __name__ label
+.metric_name = del(.__name__)
+
+# Convert tags to Map format expected by ClickHouse
+.labels = .tags
+del(.tags)
+
+# Ensure value is a float
+.value = to_float!(.value)
+
+# Add timestamp if not present
+if !exists(.timestamp) {
+  .timestamp = now()
+}
+'''
+
+# Sink: ClickHouse
+[sinks.clickhouse]
+type = "clickhouse"
+inputs = ["to_clickhouse"]
+endpoint = "http://clickhouse:8123"
+database = "pyrra"
+table = "metrics_raw"
+compression = "gzip"
+
+# Healthcheck
+healthcheck.enabled = true
+
+# Buffer settings for reliability
+buffer.type = "disk"
+buffer.max_size = 268435488  # 256MB
+
+# Batch settings
+batch.max_bytes = 10485760   # 10MB
+batch.timeout_secs = 1
+
+# Schema mapping
+encoding.timestamp_format = "rfc3339"
+
+
+

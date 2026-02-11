@@ -1,0 +1,21 @@
+apiVersion: pyrra.dev/v1alpha1
+kind: ServiceLevelObjective
+metadata:
+  name: probe-success
+  namespace: monitoring
+  labels:
+    prometheus: k8s
+    role: alert-rules
+    pyrra.dev/team: platform
+spec:
+  description: External probe success rate
+  target: "99.9"
+  window: 4w
+  indicator:
+    bool_gauge:
+      metric: probe_success{job="blackbox"}
+      grouping:
+        - instance
+
+
+

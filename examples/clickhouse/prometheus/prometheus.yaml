@@ -1,0 +1,33 @@
+# Prometheus configuration for Pyrra ClickHouse example
+# This can be used to scrape metrics and send them to ClickHouse via remote_write
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Remote write to Vector (which writes to ClickHouse)
+remote_write:
+  - url: http://vector:9201/api/v1/push
+    queue_config:
+      max_samples_per_send: 10000
+      batch_send_deadline: 5s
+
+# Example scrape configs
+scrape_configs:
+  # Scrape Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Scrape Pyrra backend
+  - job_name: 'pyrra-clickhouse'
+    static_configs:
+      - targets: ['pyrra-clickhouse:9444']
+
+  # Example API server (add your own targets)
+  # - job_name: 'api-server'
+  #   static_configs:
+  #     - targets: ['api-server:8080']
+
+
+

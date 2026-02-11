@@ -1,20 +1,22 @@
 import {PromiseClient} from '@connectrpc/connect'
-import {PrometheusService} from '../../proto/prometheus/v1/prometheus_connect'
+import {ObjectiveService} from '../../proto/objectives/v1alpha1/objectives_connect'
 import uPlot, {AlignedData} from 'uplot'
-import React, {useLayoutEffect, useRef, useState} from 'react'
-import {usePrometheusQueryRange} from '../../prometheus'
-import {step} from './step'
+import React, {useEffect, useLayoutEffect, useRef, useState} from 'react'
 import UplotReact from 'uplot-react'
-import {AlignedDataResponse, convertAlignedData, mergeAlignedData} from './aligneddata'
 import {Spinner} from 'react-bootstrap'
 import {seriesGaps} from './gaps'
 import {blues, greys, reds} from './colors'
-import {Alert} from '../../proto/objectives/v1alpha1/objectives_pb'
+import {Alert, Timeseries} from '../../proto/objectives/v1alpha1/objectives_pb'
 import {formatDuration} from '../../duration'
+import {Timestamp} from '@bufbuild/protobuf'
+import {Labels, labelsString} from '../../labels'
 
 interface BurnrateGraphProps {
-  client: PromiseClient<typeof PrometheusService>
+  client: PromiseClient<typeof ObjectiveService>
   alert: Alert
+  labels: Labels
+  grouping: Labels
+  alertIndex: number
   threshold: number
   from: number
   to: number
@@ -23,9 +25,65 @@ interface BurnrateGraphProps {
   uPlotCursor: uPlot.Cursor
 }
 
+// Convert a Timeseries proto (from ObjectiveService) to [timestamps, values] AlignedData
+const timeseriesToAligned = (ts: Timeseries | undefined): AlignedData | null => {
+  if (ts === undefined || ts.series.length < 2) {
+    return null
+  }
+  const timestamps = ts.series[0].values
+  const values = ts.series[1].values
+  return [timestamps, values]
+}
+
+// Merge two AlignedData arrays (short and long) onto the same timestamp axis
+const mergeBurnrateData = (
+  shortData: AlignedData | null,
+  longData: AlignedData | null,
+): AlignedData => {
+  if (shortData === null && longData === null) {
+    return [[], [], []]
+  }
+
+  // Collect all unique timestamps from both
+  const tsSet = new Map<number, {short: number | null; long: number | null}>()
+
+  if (shortData !== null) {
+    for (let i = 0; i < shortData[0].length; i++) {
+      const t = shortData[0][i]
+      const entry = tsSet.get(t) ?? {short: null, long: null}
+      entry.short = shortData[1][i] ?? null
+      tsSet.set(t, entry)
+    }
+  }
+
+  if (longData !== null) {
+    for (let i = 0; i < longData[0].length; i++) {
+      const t = longData[0][i]
+      const entry = tsSet.get(t) ?? {short: null, long: null}
+      entry.long = longData[1][i] ?? null
+      tsSet.set(t, entry)
+    }
+  }
+
+  const sortedTimes = Array.from(tsSet.keys()).sort((a, b) => a - b)
+  const shortValues: Array<number | null> = []
+  const longValues: Array<number | null> = []
+
+  for (const t of sortedTimes) {
+    const entry = tsSet.get(t)
+    shortValues.push(entry?.short ?? null)
+    longValues.push(entry?.long ?? null)
+  }
+
+  return [sortedTimes, shortValues, longValues]
+}
+
 const BurnrateGraph = ({
   client,
   alert,
+  labels,
+  grouping,
+  alertIndex,
   threshold,
   from,
   to,
@@ -36,6 +94,8 @@ const BurnrateGraph = ({
   const targetRef = useRef() as React.MutableRefObject<HTMLDivElement>
 
   const [width, setWidth] = useState<number>(500)
+  const [loading, setLoading] = useState<boolean>(true)
+  const [burnrateData, setBurnrateData] = useState<AlignedData>([[], [], []])
 
   const setWidthFromContainer = () => {
     if (targetRef?.current !== undefined && targetRef?.current !== null) {
@@ -48,33 +108,30 @@ const BurnrateGraph = ({
   // Set width on every window resize
   window.addEventListener('resize', setWidthFromContainer)
 
-  const {response: shortResponse, status: shortStatus} = usePrometheusQueryRange(
-    client,
-    // @ts-expect-error
-    alert.short.query,
-    from / 1000,
-    to / 1000,
-    step(from, to),
-    {enabled: alert.short?.query !== undefined},
-  )
+  useEffect(() => {
+    setLoading(true)
+    client
+      .graphBurnrate({
+        expr: labelsString(labels),
+        grouping: labelsString(grouping),
+        start: Timestamp.fromDate(new Date(from)),
+        end: Timestamp.fromDate(new Date(to)),
+        alertIndex: alertIndex,
+      })
+      .then((resp) => {
+        const shortAligned = timeseriesToAligned(resp.short)
+        const longAligned = timeseriesToAligned(resp.long)
+        setBurnrateData(mergeBurnrateData(shortAligned, longAligned))
+      })
+      .catch(() => {
+        setBurnrateData([[], [], []])
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }, [client, labels, grouping, alertIndex, from, to])
 
-  const {response: longResponse, status: longStatus} = usePrometheusQueryRange(
-    client,
-    // @ts-expect-error
-    alert.long.query,
-    from / 1000,
-    to / 1000,
-    step(from, to),
-    {enabled: alert.long?.query !== undefined},
-  )
-
-  // TODO: Improve to show graph if one is succeeded already
-  if (
-    shortStatus === 'loading' ||
-    shortStatus === 'idle' ||
-    longStatus === 'loading' ||
-    longStatus === 'idle'
-  ) {
+  if (loading) {
     return (
       <div style={{display: 'flex', alignItems: 'baseline', justifyContent: 'space-between'}}>
         <h4 className="graphs-headline">
@@ -93,26 +150,9 @@ const BurnrateGraph = ({
     )
   }
 
-  const shortData = convertAlignedData(shortResponse)
-  const longData = convertAlignedData(longResponse)
-
-  const responses: AlignedDataResponse[] = []
-  if (shortData !== null) {
-    responses.push(shortData)
-  }
-  if (longData !== null) {
-    responses.push(longData)
-  }
-  if (pendingData.length > 0) {
-    responses.push({labels: [], data: pendingData})
-  }
-  if (firingData.length > 0) {
-    responses.push({labels: [], data: firingData})
-  }
-
-  const {
-    data: [timestamps, shortSeries, longSeries, ...series],
-  } = mergeAlignedData(responses)
+  const timestamps = burnrateData[0] as number[]
+  const shortSeries = burnrateData[1] as Array<number | null>
+  const longSeries = burnrateData[2] as Array<number | null>
 
   const data: AlignedData = [
     timestamps,
@@ -121,19 +161,6 @@ const BurnrateGraph = ({
     // Add a sample for every timestamp with the threshold as value.
     Array(timestamps.length).fill(threshold),
   ]
-
-  let pendingSeries: number[] | undefined
-  if (pendingData.length > 0) {
-    pendingSeries = series[0] as number[]
-  }
-
-  let firingSeries: number[] | undefined
-  if (pendingData.length > 0 && firingData.length > 0) {
-    firingSeries = series[1] as number[]
-  }
-  if (pendingData.length === 0 && firingData.length > 0) {
-    firingSeries = series[0] as number[]
-  }
 
   // no data
   if (timestamps.length === 0) {
@@ -183,6 +210,26 @@ const BurnrateGraph = ({
   const pendingBackgroundColor = 'rgba(244,163,42,0.1)'
   const firingColor = 'rgb(244,99,99)'
   const firingBackgroundColor = 'rgba(244,99,99,0.1)'
+
+  // Determine pending/firing series from props
+  let pendingSeries: number[] | undefined
+  if (pendingData.length > 0 && pendingData[0].length > 0) {
+    // merge pending onto timestamps  
+    const pendingMap = new Map<number, number>()
+    for (let i = 0; i < pendingData[0].length; i++) {
+      pendingMap.set(pendingData[0][i], pendingData[1]?.[i] ?? 0)
+    }
+    pendingSeries = timestamps.map((t) => pendingMap.get(t) ?? (null as unknown as number))
+  }
+
+  let firingSeries: number[] | undefined
+  if (firingData.length > 0 && firingData[0].length > 0) {
+    const firingMap = new Map<number, number>()
+    for (let i = 0; i < firingData[0].length; i++) {
+      firingMap.set(firingData[0][i], firingData[1]?.[i] ?? 0)
+    }
+    firingSeries = timestamps.map((t) => firingMap.get(t) ?? (null as unknown as number))
+  }
 
   return (
     <div ref={targetRef} className="burnrate">

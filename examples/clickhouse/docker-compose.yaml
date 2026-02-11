@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  # ClickHouse database
+  clickhouse:
+    image: clickhouse:26.1
+    container_name: pyrra-clickhouse-db
+    ports:
+      - "8123:8123"   # HTTP interface
+      - "9000:9000"   # Native interface
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/pyrra.xml:ro
+      - ./clickhouse/users.xml:/etc/clickhouse-server/users.d/pyrra.xml:ro
+    environment:
+      - CLICKHOUSE_DB=pyrra
+      - CLICKHOUSE_USER=pyrra
+      - CLICKHOUSE_PASSWORD=pyrra
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Pyrra ClickHouse Backend
+  # Reads SLO definitions and provisions Materialized Views
+  pyrra-clickhouse:
+    image: ghcr.io/pyrra-dev/pyrra:latest
+    container_name: pyrra-clickhouse-backend
+    command:
+      - clickhouse
+      - --addresses=clickhouse:9000
+      - --database=pyrra
+      - --username=pyrra
+      - --password=pyrra
+      - --config-files=/etc/pyrra/*.yaml
+      - --mv-refresh-interval=30s
+    volumes:
+      - ./slos:/etc/pyrra:ro
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - "9444:9444"   # Backend API
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:9444/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Pyrra API/UI
+  # Provides the web interface and API for viewing SLOs
+  pyrra-api:
+    image: ghcr.io/pyrra-dev/pyrra:latest
+    container_name: pyrra-api
+    command:
+      - api
+      - --api-url=http://pyrra-clickhouse:9444
+      - --prometheus-url=http://clickhouse:8123  # ClickHouse HTTP for future PromQL proxy
+    depends_on:
+      pyrra-clickhouse:
+        condition: service_healthy
+    ports:
+      - "9099:9099"
+
+  # Vector for metrics ingestion (optional)
+  # Receives Prometheus remote_write and writes to ClickHouse
+  vector:
+    image: timberio/vector:0.35.0-alpine
+    container_name: pyrra-vector
+    volumes:
+      - ./vector/vector.toml:/etc/vector/vector.toml:ro
+    ports:
+      - "9201:9201"   # Prometheus remote write endpoint
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
+  # Prometheus (optional, for comparison/migration)
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: pyrra-prometheus
+    volumes:
+      - ./prometheus/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-remote-write-receiver
+    ports:
+      - "9090:9090"
+
+  # Grafana (optional, for visualization)
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: pyrra-grafana
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - clickhouse
+
+volumes:
+  clickhouse-data:
+  prometheus-data:
+  grafana-data:
+
+
+

@@ -41,6 +41,7 @@ import (
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	"github.com/pyrra-dev/pyrra/clickhouse"
 	"github.com/pyrra-dev/pyrra/mimir"
 	objectivesv1alpha1 "github.com/pyrra-dev/pyrra/proto/objectives/v1alpha1"
 	"github.com/pyrra-dev/pyrra/proto/objectives/v1alpha1/objectivesv1alpha1connect"
@@ -97,6 +98,21 @@ var CLI struct {
 		GenericRules     bool   `default:"false" help:"Enabled generic recording rules generation to make it easier for tools like Grafana."`
 		OperatorRule     bool   `default:"false" help:"Generate rule files as prometheus-operator PrometheusRule: https://prometheus-operator.dev/docs/operator/api/#monitoring.coreos.com/v1.PrometheusRule."`
 	} `cmd:"" help:"Read SLO config files and rewrites them as Prometheus rules and alerts."`
+	ClickHouse struct {
+		ConfigFiles       string        `default:"/etc/pyrra/*.yaml" help:"The folder where Pyrra finds the config files to use. Any non yaml files will be ignored."`
+		GenericRules      bool          `default:"false" help:"Enabled generic recording rules generation to make it easier for tools like Grafana."`
+		Addresses         []string      `default:"localhost:9000" help:"ClickHouse server addresses."`
+		Database          string        `default:"pyrra" help:"ClickHouse database name."`
+		Username          string        `default:"default" help:"ClickHouse username."`
+		Password          string        `default:"" help:"ClickHouse password."`
+		Protocol          string        `default:"native" help:"ClickHouse protocol: 'native' (port 9000/9440) or 'http' (port 8123/8443)."`
+		TLSEnabled        bool          `default:"false" help:"Enable TLS for ClickHouse connection."`
+		TLSCAFile         string        `default:"" help:"CA certificate file for ClickHouse TLS."`
+		TLSCertFile       string        `default:"" help:"Client certificate file for ClickHouse TLS."`
+		TLSKeyFile        string        `default:"" help:"Client key file for ClickHouse TLS."`
+		TLSSkipVerify     bool          `default:"false" help:"Skip TLS certificate verification."`
+		MVRefreshInterval time.Duration `default:"30s" help:"Interval for refreshing materialized views."`
+	} `cmd:"" name:"clickhouse" help:"Runs Pyrra with ClickHouse backend for metrics storage instead of Prometheus."`
 }
 
 func main() {
@@ -252,6 +268,32 @@ func main() {
 			CLI.Generate.PrometheusFolder,
 			CLI.Generate.GenericRules,
 			CLI.Generate.OperatorRule,
+		)
+	case "clickhouse":
+		chConfig := clickhouse.Config{
+			Addresses:         CLI.ClickHouse.Addresses,
+			Database:          CLI.ClickHouse.Database,
+			Username:          CLI.ClickHouse.Username,
+			Password:          CLI.ClickHouse.Password,
+			Protocol:          CLI.ClickHouse.Protocol,
+			TLSEnabled:        CLI.ClickHouse.TLSEnabled,
+			TLSCAFile:         CLI.ClickHouse.TLSCAFile,
+			TLSCertFile:       CLI.ClickHouse.TLSCertFile,
+			TLSKeyFile:        CLI.ClickHouse.TLSKeyFile,
+			TLSSkipVerify:     CLI.ClickHouse.TLSSkipVerify,
+			MVRefreshInterval: CLI.ClickHouse.MVRefreshInterval,
+			DialTimeout:       30 * time.Second,
+			QueryTimeout:      60 * time.Second,
+			MaxOpenConns:      10,
+			MaxIdleConns:      5,
+			ConnMaxLifetime:   time.Hour,
+		}
+		code = cmdClickHouse(
+			logger,
+			reg,
+			chConfig,
+			CLI.ClickHouse.ConfigFiles,
+			CLI.ClickHouse.GenericRules,
 		)
 	}
 	os.Exit(code)
@@ -806,13 +848,8 @@ func (s *objectiveServer) List(ctx context.Context, req *connect.Request[objecti
 			}
 		}
 
-		o.Queries = &objectivesv1alpha1.Queries{
-			CountTotal:       oi.QueryTotal(oi.Window),
-			CountErrors:      oi.QueryErrors(oi.Window),
-			GraphErrorBudget: oi.QueryErrorBudget(),
-			GraphRequests:    oi.RequestRange(time.Second),
-			GraphErrors:      oi.ErrorsRange(time.Second),
-		}
+		// Queries field is deprecated - the UI now uses ObjectiveService RPCs directly.
+		_ = oi
 	}
 
 	return connect.NewResponse(&objectivesv1alpha1.ListResponse{
@@ -1538,6 +1575,110 @@ func (s *objectiveServer) GraphErrors(ctx context.Context, req *connect.Request[
 			Query:  query,
 			Series: series,
 		},
+	}), nil
+}
+
+func (s *objectiveServer) GraphBurnrate(ctx context.Context, req *connect.Request[objectivesv1alpha1.GraphBurnrateRequest]) (*connect.Response[objectivesv1alpha1.GraphBurnrateResponse], error) {
+	objective, err := s.getObjective(ctx, req.Msg.Expr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Merge grouping into objective's query
+	var groupingMatchers []*labels.Matcher
+	if req.Msg.Grouping != "" {
+		groupingMatchers, err = parser.ParseMetricSelector(req.Msg.Grouping)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("failed to parse expr: %w", err))
+		}
+		if objective.Indicator.Ratio != nil {
+			for _, m := range groupingMatchers {
+				objective.Indicator.Ratio.Errors.LabelMatchers = append(objective.Indicator.Ratio.Errors.LabelMatchers, m)
+				objective.Indicator.Ratio.Total.LabelMatchers = append(objective.Indicator.Ratio.Total.LabelMatchers, m)
+			}
+		}
+		if objective.Indicator.Latency != nil {
+			for _, m := range groupingMatchers {
+				objective.Indicator.Latency.Success.LabelMatchers = append(objective.Indicator.Latency.Success.LabelMatchers, m)
+				objective.Indicator.Latency.Total.LabelMatchers = append(objective.Indicator.Latency.Total.LabelMatchers, m)
+			}
+		}
+		if objective.Indicator.BoolGauge != nil {
+			objective.Indicator.BoolGauge.LabelMatchers = append(objective.Indicator.BoolGauge.LabelMatchers, groupingMatchers...)
+		}
+	}
+
+	windows := objective.Windows()
+	alertIndex := int(req.Msg.AlertIndex)
+	if alertIndex < 0 || alertIndex >= len(windows) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("alert_index %d out of range [0, %d)", alertIndex, len(windows)))
+	}
+	w := windows[alertIndex]
+
+	end := time.Now()
+	start := end.Add(-1 * time.Hour)
+	if !req.Msg.Start.AsTime().IsZero() && !req.Msg.End.AsTime().IsZero() {
+		start = req.Msg.Start.AsTime()
+		end = req.Msg.End.AsTime()
+	}
+	step := end.Sub(start) / 1000
+	cacheDuration := rangeCache(start, end)
+
+	queryPromMatrix := func(query string) (*objectivesv1alpha1.Timeseries, error) {
+		value, _, err := s.promAPI.QueryRange(contextSetPromCache(ctx, cacheDuration), query, prometheusapiv1.Range{
+			Start: start,
+			End:   end,
+			Step:  step,
+		})
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		if value.Type() != model.ValMatrix {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("returned data is not a matrix"))
+		}
+		matrix, ok := value.(model.Matrix)
+		if !ok || len(matrix) == 0 {
+			return nil, nil
+		}
+		lbls := make([]string, len(matrix))
+		for i, stream := range matrix {
+			lbls[i] = model.LabelSet(stream.Metric).String()
+		}
+		values := matrixToValues(matrix)
+		series := make([]*objectivesv1alpha1.Series, 0, len(values))
+		for _, float64s := range values {
+			series = append(series, &objectivesv1alpha1.Series{Values: float64s})
+		}
+		return &objectivesv1alpha1.Timeseries{
+			Labels: lbls,
+			Query:  query,
+			Series: series,
+		}, nil
+	}
+
+	shortQuery, err := objective.QueryBurnrate(w.Short, groupingMatchers)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	longQuery, err := objective.QueryBurnrate(w.Long, groupingMatchers)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+
+	shortTS, err := queryPromMatrix(shortQuery)
+	if err != nil {
+		level.Warn(s.logger).Log("msg", "failed to query short burnrate", "query", shortQuery, "err", err)
+		return nil, err
+	}
+	longTS, err := queryPromMatrix(longQuery)
+	if err != nil {
+		level.Warn(s.logger).Log("msg", "failed to query long burnrate", "query", longQuery, "err", err)
+		return nil, err
+	}
+
+	return connect.NewResponse(&objectivesv1alpha1.GraphBurnrateResponse{
+		Short: shortTS,
+		Long:  longTS,
 	}), nil
 }
 

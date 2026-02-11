@@ -391,3 +391,28 @@ export const GraphDurationResponse = proto3.makeMessageType(
   ],
 );
 
+/**
+ * @generated from message objectives.v1alpha1.GraphBurnrateRequest
+ */
+export const GraphBurnrateRequest = proto3.makeMessageType(
+  "objectives.v1alpha1.GraphBurnrateRequest",
+  () => [
+    { no: 1, name: "expr", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "grouping", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "start", kind: "message", T: Timestamp },
+    { no: 4, name: "end", kind: "message", T: Timestamp },
+    { no: 5, name: "alert_index", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+  ],
+);
+
+/**
+ * @generated from message objectives.v1alpha1.GraphBurnrateResponse
+ */
+export const GraphBurnrateResponse = proto3.makeMessageType(
+  "objectives.v1alpha1.GraphBurnrateResponse",
+  () => [
+    { no: 1, name: "short", kind: "message", T: Timeseries },
+    { no: 2, name: "long", kind: "message", T: Timeseries },
+  ],
+);
+

@@ -27,6 +27,42 @@ const (
 	ObjectiveBackendServiceName = "objectives.v1alpha1.ObjectiveBackendService"
 )
 
+// These constants are the fully-qualified names of the RPCs defined in this package. They're
+// exposed at runtime as Spec.Procedure and as the final two segments of the HTTP route.
+//
+// Note that these are different from the fully-qualified method names used by
+// google.golang.org/protobuf/reflect/protoreflect. To convert from these constants to
+// reflection-formatted method names, remove the leading slash and convert the remaining slash to a
+// period.
+const (
+	// ObjectiveServiceListProcedure is the fully-qualified name of the ObjectiveService's List RPC.
+	ObjectiveServiceListProcedure = "/objectives.v1alpha1.ObjectiveService/List"
+	// ObjectiveServiceGetStatusProcedure is the fully-qualified name of the ObjectiveService's
+	// GetStatus RPC.
+	ObjectiveServiceGetStatusProcedure = "/objectives.v1alpha1.ObjectiveService/GetStatus"
+	// ObjectiveServiceGetAlertsProcedure is the fully-qualified name of the ObjectiveService's
+	// GetAlerts RPC.
+	ObjectiveServiceGetAlertsProcedure = "/objectives.v1alpha1.ObjectiveService/GetAlerts"
+	// ObjectiveServiceGraphErrorBudgetProcedure is the fully-qualified name of the ObjectiveService's
+	// GraphErrorBudget RPC.
+	ObjectiveServiceGraphErrorBudgetProcedure = "/objectives.v1alpha1.ObjectiveService/GraphErrorBudget"
+	// ObjectiveServiceGraphRateProcedure is the fully-qualified name of the ObjectiveService's
+	// GraphRate RPC.
+	ObjectiveServiceGraphRateProcedure = "/objectives.v1alpha1.ObjectiveService/GraphRate"
+	// ObjectiveServiceGraphErrorsProcedure is the fully-qualified name of the ObjectiveService's
+	// GraphErrors RPC.
+	ObjectiveServiceGraphErrorsProcedure = "/objectives.v1alpha1.ObjectiveService/GraphErrors"
+	// ObjectiveServiceGraphDurationProcedure is the fully-qualified name of the ObjectiveService's
+	// GraphDuration RPC.
+	ObjectiveServiceGraphDurationProcedure = "/objectives.v1alpha1.ObjectiveService/GraphDuration"
+	// ObjectiveServiceGraphBurnrateProcedure is the fully-qualified name of the ObjectiveService's
+	// GraphBurnrate RPC.
+	ObjectiveServiceGraphBurnrateProcedure = "/objectives.v1alpha1.ObjectiveService/GraphBurnrate"
+	// ObjectiveBackendServiceListProcedure is the fully-qualified name of the ObjectiveBackendService's
+	// List RPC.
+	ObjectiveBackendServiceListProcedure = "/objectives.v1alpha1.ObjectiveBackendService/List"
+)
+
 // ObjectiveServiceClient is a client for the objectives.v1alpha1.ObjectiveService service.
 type ObjectiveServiceClient interface {
 	List(context.Context, *connect_go.Request[v1alpha1.ListRequest]) (*connect_go.Response[v1alpha1.ListResponse], error)
@@ -36,6 +72,7 @@ type ObjectiveServiceClient interface {
 	GraphRate(context.Context, *connect_go.Request[v1alpha1.GraphRateRequest]) (*connect_go.Response[v1alpha1.GraphRateResponse], error)
 	GraphErrors(context.Context, *connect_go.Request[v1alpha1.GraphErrorsRequest]) (*connect_go.Response[v1alpha1.GraphErrorsResponse], error)
 	GraphDuration(context.Context, *connect_go.Request[v1alpha1.GraphDurationRequest]) (*connect_go.Response[v1alpha1.GraphDurationResponse], error)
+	GraphBurnrate(context.Context, *connect_go.Request[v1alpha1.GraphBurnrateRequest]) (*connect_go.Response[v1alpha1.GraphBurnrateResponse], error)
 }
 
 // NewObjectiveServiceClient constructs a client for the objectives.v1alpha1.ObjectiveService
@@ -50,37 +87,42 @@ func NewObjectiveServiceClient(httpClient connect_go.HTTPClient, baseURL string,
 	return &objectiveServiceClient{
 		list: connect_go.NewClient[v1alpha1.ListRequest, v1alpha1.ListResponse](
 			httpClient,
-			baseURL+"/objectives.v1alpha1.ObjectiveService/List",
+			baseURL+ObjectiveServiceListProcedure,
 			opts...,
 		),
 		getStatus: connect_go.NewClient[v1alpha1.GetStatusRequest, v1alpha1.GetStatusResponse](
 			httpClient,
-			baseURL+"/objectives.v1alpha1.ObjectiveService/GetStatus",
+			baseURL+ObjectiveServiceGetStatusProcedure,
 			opts...,
 		),
 		getAlerts: connect_go.NewClient[v1alpha1.GetAlertsRequest, v1alpha1.GetAlertsResponse](
 			httpClient,
-			baseURL+"/objectives.v1alpha1.ObjectiveService/GetAlerts",
+			baseURL+ObjectiveServiceGetAlertsProcedure,
 			opts...,
 		),
 		graphErrorBudget: connect_go.NewClient[v1alpha1.GraphErrorBudgetRequest, v1alpha1.GraphErrorBudgetResponse](
 			httpClient,
-			baseURL+"/objectives.v1alpha1.ObjectiveService/GraphErrorBudget",
+			baseURL+ObjectiveServiceGraphErrorBudgetProcedure,
 			opts...,
 		),
 		graphRate: connect_go.NewClient[v1alpha1.GraphRateRequest, v1alpha1.GraphRateResponse](
 			httpClient,
-			baseURL+"/objectives.v1alpha1.ObjectiveService/GraphRate",
+			baseURL+ObjectiveServiceGraphRateProcedure,
 			opts...,
 		),
 		graphErrors: connect_go.NewClient[v1alpha1.GraphErrorsRequest, v1alpha1.GraphErrorsResponse](
 			httpClient,
-			baseURL+"/objectives.v1alpha1.ObjectiveService/GraphErrors",
+			baseURL+ObjectiveServiceGraphErrorsProcedure,
 			opts...,
 		),
 		graphDuration: connect_go.NewClient[v1alpha1.GraphDurationRequest, v1alpha1.GraphDurationResponse](
 			httpClient,
-			baseURL+"/objectives.v1alpha1.ObjectiveService/GraphDuration",
+			baseURL+ObjectiveServiceGraphDurationProcedure,
+			opts...,
+		),
+		graphBurnrate: connect_go.NewClient[v1alpha1.GraphBurnrateRequest, v1alpha1.GraphBurnrateResponse](
+			httpClient,
+			baseURL+ObjectiveServiceGraphBurnrateProcedure,
 			opts...,
 		),
 	}
@@ -95,6 +137,7 @@ type objectiveServiceClient struct {
 	graphRate        *connect_go.Client[v1alpha1.GraphRateRequest, v1alpha1.GraphRateResponse]
 	graphErrors      *connect_go.Client[v1alpha1.GraphErrorsRequest, v1alpha1.GraphErrorsResponse]
 	graphDuration    *connect_go.Client[v1alpha1.GraphDurationRequest, v1alpha1.GraphDurationResponse]
+	graphBurnrate    *connect_go.Client[v1alpha1.GraphBurnrateRequest, v1alpha1.GraphBurnrateResponse]
 }
 
 // List calls objectives.v1alpha1.ObjectiveService.List.
@@ -132,6 +175,11 @@ func (c *objectiveServiceClient) GraphDuration(ctx context.Context, req *connect
 	return c.graphDuration.CallUnary(ctx, req)
 }
 
+// GraphBurnrate calls objectives.v1alpha1.ObjectiveService.GraphBurnrate.
+func (c *objectiveServiceClient) GraphBurnrate(ctx context.Context, req *connect_go.Request[v1alpha1.GraphBurnrateRequest]) (*connect_go.Response[v1alpha1.GraphBurnrateResponse], error) {
+	return c.graphBurnrate.CallUnary(ctx, req)
+}
+
 // ObjectiveServiceHandler is an implementation of the objectives.v1alpha1.ObjectiveService service.
 type ObjectiveServiceHandler interface {
 	List(context.Context, *connect_go.Request[v1alpha1.ListRequest]) (*connect_go.Response[v1alpha1.ListResponse], error)
@@ -141,6 +189,7 @@ type ObjectiveServiceHandler interface {
 	GraphRate(context.Context, *connect_go.Request[v1alpha1.GraphRateRequest]) (*connect_go.Response[v1alpha1.GraphRateResponse], error)
 	GraphErrors(context.Context, *connect_go.Request[v1alpha1.GraphErrorsRequest]) (*connect_go.Response[v1alpha1.GraphErrorsResponse], error)
 	GraphDuration(context.Context, *connect_go.Request[v1alpha1.GraphDurationRequest]) (*connect_go.Response[v1alpha1.GraphDurationResponse], error)
+	GraphBurnrate(context.Context, *connect_go.Request[v1alpha1.GraphBurnrateRequest]) (*connect_go.Response[v1alpha1.GraphBurnrateResponse], error)
 }
 
 // NewObjectiveServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -149,43 +198,68 @@ type ObjectiveServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewObjectiveServiceHandler(svc ObjectiveServiceHandler, opts ...connect_go.HandlerOption) (string, http.Handler) {
-	mux := http.NewServeMux()
-	mux.Handle("/objectives.v1alpha1.ObjectiveService/List", connect_go.NewUnaryHandler(
-		"/objectives.v1alpha1.ObjectiveService/List",
+	objectiveServiceListHandler := connect_go.NewUnaryHandler(
+		ObjectiveServiceListProcedure,
 		svc.List,
 		opts...,
-	))
-	mux.Handle("/objectives.v1alpha1.ObjectiveService/GetStatus", connect_go.NewUnaryHandler(
-		"/objectives.v1alpha1.ObjectiveService/GetStatus",
+	)
+	objectiveServiceGetStatusHandler := connect_go.NewUnaryHandler(
+		ObjectiveServiceGetStatusProcedure,
 		svc.GetStatus,
 		opts...,
-	))
-	mux.Handle("/objectives.v1alpha1.ObjectiveService/GetAlerts", connect_go.NewUnaryHandler(
-		"/objectives.v1alpha1.ObjectiveService/GetAlerts",
+	)
+	objectiveServiceGetAlertsHandler := connect_go.NewUnaryHandler(
+		ObjectiveServiceGetAlertsProcedure,
 		svc.GetAlerts,
 		opts...,
-	))
-	mux.Handle("/objectives.v1alpha1.ObjectiveService/GraphErrorBudget", connect_go.NewUnaryHandler(
-		"/objectives.v1alpha1.ObjectiveService/GraphErrorBudget",
+	)
+	objectiveServiceGraphErrorBudgetHandler := connect_go.NewUnaryHandler(
+		ObjectiveServiceGraphErrorBudgetProcedure,
 		svc.GraphErrorBudget,
 		opts...,
-	))
-	mux.Handle("/objectives.v1alpha1.ObjectiveService/GraphRate", connect_go.NewUnaryHandler(
-		"/objectives.v1alpha1.ObjectiveService/GraphRate",
+	)
+	objectiveServiceGraphRateHandler := connect_go.NewUnaryHandler(
+		ObjectiveServiceGraphRateProcedure,
 		svc.GraphRate,
 		opts...,
-	))
-	mux.Handle("/objectives.v1alpha1.ObjectiveService/GraphErrors", connect_go.NewUnaryHandler(
-		"/objectives.v1alpha1.ObjectiveService/GraphErrors",
+	)
+	objectiveServiceGraphErrorsHandler := connect_go.NewUnaryHandler(
+		ObjectiveServiceGraphErrorsProcedure,
 		svc.GraphErrors,
 		opts...,
-	))
-	mux.Handle("/objectives.v1alpha1.ObjectiveService/GraphDuration", connect_go.NewUnaryHandler(
-		"/objectives.v1alpha1.ObjectiveService/GraphDuration",
+	)
+	objectiveServiceGraphDurationHandler := connect_go.NewUnaryHandler(
+		ObjectiveServiceGraphDurationProcedure,
 		svc.GraphDuration,
 		opts...,
-	))
-	return "/objectives.v1alpha1.ObjectiveService/", mux
+	)
+	objectiveServiceGraphBurnrateHandler := connect_go.NewUnaryHandler(
+		ObjectiveServiceGraphBurnrateProcedure,
+		svc.GraphBurnrate,
+		opts...,
+	)
+	return "/objectives.v1alpha1.ObjectiveService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case ObjectiveServiceListProcedure:
+			objectiveServiceListHandler.ServeHTTP(w, r)
+		case ObjectiveServiceGetStatusProcedure:
+			objectiveServiceGetStatusHandler.ServeHTTP(w, r)
+		case ObjectiveServiceGetAlertsProcedure:
+			objectiveServiceGetAlertsHandler.ServeHTTP(w, r)
+		case ObjectiveServiceGraphErrorBudgetProcedure:
+			objectiveServiceGraphErrorBudgetHandler.ServeHTTP(w, r)
+		case ObjectiveServiceGraphRateProcedure:
+			objectiveServiceGraphRateHandler.ServeHTTP(w, r)
+		case ObjectiveServiceGraphErrorsProcedure:
+			objectiveServiceGraphErrorsHandler.ServeHTTP(w, r)
+		case ObjectiveServiceGraphDurationProcedure:
+			objectiveServiceGraphDurationHandler.ServeHTTP(w, r)
+		case ObjectiveServiceGraphBurnrateProcedure:
+			objectiveServiceGraphBurnrateHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
 }
 
 // UnimplementedObjectiveServiceHandler returns CodeUnimplemented from all methods.
@@ -219,6 +293,10 @@ func (UnimplementedObjectiveServiceHandler) GraphDuration(context.Context, *conn
 	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("objectives.v1alpha1.ObjectiveService.GraphDuration is not implemented"))
 }
 
+func (UnimplementedObjectiveServiceHandler) GraphBurnrate(context.Context, *connect_go.Request[v1alpha1.GraphBurnrateRequest]) (*connect_go.Response[v1alpha1.GraphBurnrateResponse], error) {
+	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("objectives.v1alpha1.ObjectiveService.GraphBurnrate is not implemented"))
+}
+
 // ObjectiveBackendServiceClient is a client for the objectives.v1alpha1.ObjectiveBackendService
 // service.
 type ObjectiveBackendServiceClient interface {
@@ -238,7 +316,7 @@ func NewObjectiveBackendServiceClient(httpClient connect_go.HTTPClient, baseURL 
 	return &objectiveBackendServiceClient{
 		list: connect_go.NewClient[v1alpha1.ListRequest, v1alpha1.ListResponse](
 			httpClient,
-			baseURL+"/objectives.v1alpha1.ObjectiveBackendService/List",
+			baseURL+ObjectiveBackendServiceListProcedure,
 			opts...,
 		),
 	}
@@ -266,13 +344,19 @@ type ObjectiveBackendServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewObjectiveBackendServiceHandler(svc ObjectiveBackendServiceHandler, opts ...connect_go.HandlerOption) (string, http.Handler) {
-	mux := http.NewServeMux()
-	mux.Handle("/objectives.v1alpha1.ObjectiveBackendService/List", connect_go.NewUnaryHandler(
-		"/objectives.v1alpha1.ObjectiveBackendService/List",
+	objectiveBackendServiceListHandler := connect_go.NewUnaryHandler(
+		ObjectiveBackendServiceListProcedure,
 		svc.List,
 		opts...,
-	))
-	return "/objectives.v1alpha1.ObjectiveBackendService/", mux
+	)
+	return "/objectives.v1alpha1.ObjectiveBackendService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case ObjectiveBackendServiceListProcedure:
+			objectiveBackendServiceListHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
 }
 
 // UnimplementedObjectiveBackendServiceHandler returns CodeUnimplemented from all methods.

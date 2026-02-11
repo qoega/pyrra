@@ -11,18 +11,14 @@ import {
 import {PromiseClient} from '@connectrpc/connect'
 import {ObjectiveService} from '../proto/objectives/v1alpha1/objectives_connect'
 import BurnrateGraph from './graphs/BurnrateGraph'
-import uPlot, {AlignedData} from 'uplot'
-import {PrometheusService} from '../proto/prometheus/v1/prometheus_connect'
-import {usePrometheusQueryRange} from '../prometheus'
-import {step} from './graphs/step'
-import {convertAlignedData} from './graphs/aligneddata'
+import uPlot from 'uplot'
 import {formatDuration} from '../duration'
-import {buildExternalHRef, externalName} from '../external';
+import {buildExternalHRef, externalName} from '../external'
 
 interface AlertsTableProps {
   client: PromiseClient<typeof ObjectiveService>
-  promClient: PromiseClient<typeof PrometheusService>
   objective: Objective
+  labels: Labels
   grouping: Labels
   from: number
   to: number
@@ -33,8 +29,8 @@ const alertStateString = ['inactive', 'pending', 'firing']
 
 const AlertsTable = ({
   client,
-  promClient,
   objective,
+  labels,
   grouping,
   from,
   to,
@@ -63,19 +59,6 @@ const AlertsTable = ({
       .catch((err) => console.log(err))
   }, [client, objective, grouping])
 
-  const {response: alertsRangeResponse} = usePrometheusQueryRange(
-    promClient,
-    `ALERTS{slo="${objective.labels.__name__}"}`,
-    from / 1000,
-    to / 1000,
-    step(from, to),
-    {enabled: objective.labels.__name__ !== ''},
-  )
-  const {
-    labels: alertsLabels,
-    data: [alertsTimestamps, ...alertsSeries],
-  } = convertAlignedData(alertsRangeResponse)
-
   return (
     <div className="table-responsive">
       <Table className="table-alerts">
@@ -96,7 +79,6 @@ const AlertsTable = ({
         </thead>
         <tbody>
           {alerts.map((a: Alert, i: number) => {
-            // TODO: Refactor all of this to read the current value from alertsSeries
             let shortCurrent = ''
             if (a.short?.current === -1.0) {
               shortCurrent = 'NaN'
@@ -112,30 +94,6 @@ const AlertsTable = ({
               longCurrent = (0).toFixed(3).toString()
             } else {
               longCurrent = a.long?.current.toFixed(3)
-            }
-
-            const seriesFiringIndex = alertsLabels.findIndex((al: Labels): boolean => {
-              return (
-                al.short === formatDuration(Number(a.short?.window?.seconds) * 1000) &&
-                al.long === formatDuration(Number(a.long?.window?.seconds) * 1000) &&
-                al.alertstate === 'firing'
-              )
-            })
-            const seriesPendingIndex = alertsLabels.findIndex((al: Labels): boolean => {
-              return (
-                al.short === formatDuration(Number(a.short?.window?.seconds) * 1000) &&
-                al.long === formatDuration(Number(a.long?.window?.seconds) * 1000) &&
-                al.alertstate === 'pending'
-              )
-            })
-
-            let firingAlignedData: AlignedData = []
-            if (seriesFiringIndex > -1) {
-              firingAlignedData = [alertsTimestamps, alertsSeries[seriesFiringIndex]]
-            }
-            let pendingAlignedData: AlignedData = []
-            if (seriesPendingIndex > -1) {
-              pendingAlignedData = [alertsTimestamps, alertsSeries[seriesPendingIndex]]
             }
 
             return (
@@ -209,13 +167,16 @@ const AlertsTable = ({
                   <tr key={i + 10} className="burnrate">
                     <td colSpan={11}>
                       <BurnrateGraph
-                        client={promClient}
+                        client={client}
                         alert={a}
+                        labels={labels}
+                        grouping={grouping}
+                        alertIndex={i}
                         threshold={a.factor * (1 - objective.target)}
                         from={from}
                         to={to}
-                        pendingData={pendingAlignedData}
-                        firingData={firingAlignedData}
+                        pendingData={[]}
+                        firingData={[]}
                         uPlotCursor={uPlotCursor}
                       />
                     </td>

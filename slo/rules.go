@@ -591,6 +591,47 @@ func increaseName(metric string, window model.Duration) string {
 	return fmt.Sprintf("%s:increase%s", metric, window)
 }
 
+// TotalName returns the name of the total/count increase metric for this objective's window.
+// For BoolGauge it's count, for all others it's increase.
+func (o Objective) TotalName() string {
+	switch o.IndicatorType() {
+	case BoolGauge:
+		return countName(o.Indicator.BoolGauge.Name, o.Window)
+	case Ratio:
+		return increaseName(o.Indicator.Ratio.Total.Name, o.Window)
+	case Latency:
+		return increaseName(o.Indicator.Latency.Total.Name, o.Window)
+	case LatencyNative:
+		return increaseName(o.Indicator.LatencyNative.Total.Name, o.Window)
+	default:
+		return ""
+	}
+}
+
+// ErrorName returns the error metric name for Ratio objectives.
+// For Latency/BoolGauge, errors are computed as total - success, so there is no
+// separate error metric; use TotalName() and SuccessName() instead.
+func (o Objective) ErrorName() string {
+	switch o.IndicatorType() {
+	case Ratio:
+		return increaseName(o.Indicator.Ratio.Errors.Name, o.Window)
+	default:
+		return ""
+	}
+}
+
+// SuccessName returns the success/sum metric name for Latency and BoolGauge objectives.
+func (o Objective) SuccessName() string {
+	switch o.IndicatorType() {
+	case Latency:
+		return increaseName(o.Indicator.Latency.Success.Name, o.Window)
+	case BoolGauge:
+		return sumName(o.Indicator.BoolGauge.Name, o.Window)
+	default:
+		return ""
+	}
+}
+
 func (o Objective) commonRuleLabels(sloName string) map[string]string {
 	ruleLabels := map[string]string{
 		"slo": sloName,
